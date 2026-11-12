@@ -30,6 +30,7 @@ const state = {
   sessionsMachineId: null,     // sessions view: which machine
   sessionId: null,             // session detail view
   newMachineId: null,          // new-session form: preselected machine
+  resume: null,                // new-session form: continue-a-conversation info
   previews: new Map(),         // sessionId -> last output line (list preview)
   files: emptyFilesState(),
   picker: null,                // folder picker modal state
@@ -469,6 +470,9 @@ function showView(name, params = {}, opts = {}) {
   if (name === 'new-session' && params.newMachineId !== undefined) {
     state.newMachineId = params.newMachineId;
   }
+  if (name === 'new-session' && params.resume !== undefined) {
+    state.resume = params.resume;
+  }
   if (push) {
     try { history.pushState({ view: name, params }, ''); } catch (e) { /* ignore */ }
   }
@@ -789,6 +793,9 @@ function renderDetailMeta() {
     ((s.status === 'running' || s.status === 'stopping') && s.type !== 'watched'
       ? '<button class="btn ghost" data-action="session-stop" data-id="' + esc(s.id) + '">■ Stop</button>'
       : '') +
+    (s.externalId && !['running', 'stopping', 'pending', 'disconnected'].includes(s.status)
+      ? '<button class="btn primary ghost" data-action="dsh-continue" data-id="' + esc(s.id) + '">↻ Continue</button>'
+      : '') +
     '<button class="btn danger ghost" data-action="session-delete" data-id="' + esc(s.id) + '">🗑 Delete</button>' +
     '</div>';
 }
@@ -980,7 +987,9 @@ function renderNewSession() {
   }
   const connected = state.machines.filter((m) => m.status === 'connected');
   // keep the chosen machine when it is still connected
-  if (!state.newMachineId || !connected.some((m) => m.id === state.newMachineId)) {
+  if (state.resume && state.resume.machineId && connected.some((m) => m.id === state.resume.machineId)) {
+    state.newMachineId = state.resume.machineId;
+  } else if (!state.newMachineId || !connected.some((m) => m.id === state.newMachineId)) {
     state.newMachineId = connected.length ? connected[0].id : '';
   }
   const msel = $('#ns-machine');
@@ -1000,6 +1009,23 @@ function renderNewSession() {
         '<option value="' + esc(t.name) + '"' + (t.name === prev ? ' selected' : '') + '>' +
         esc(t.name) + '</option>').join('')
       : '<option value="">— no templates —</option>';
+    if (state.resume && state.resume.template && state.templates.some((t) => t.name === state.resume.template)) {
+      tsel.value = state.resume.template;
+    }
+  }
+  if (state.resume && state.resume.workspace) {
+    const ws = $('#ns-workspace');
+    if (ws) { ws.value = state.resume.workspace; ws.classList.remove('invalid'); }
+  }
+  const chip = $('#ns-resume');
+  if (chip) {
+    if (state.resume && state.resume.sessionId) {
+      chip.hidden = false;
+      const txt = $('#ns-resume-text');
+      if (txt) txt.textContent = 'Continuing: ' + state.resume.sessionId;
+    } else {
+      chip.hidden = true;
+    }
   }
   const submit = $('#ns-submit');
   if (submit) submit.disabled = !connected.length || !state.templates.length;
@@ -1012,8 +1038,24 @@ function updatePromptHints() {
   if (desc) desc.textContent = tpl ? (tpl.description || '') : '';
   const lbl = $('#ns-prompt-label');
   const hint = $('#ns-hint');
+  const ph = $('#ns-prompt');
+  if (ph) {
+    if (!tpl) ph.placeholder = 'What should the agent do?';
+    else if (tpl.name === 'shell') ph.placeholder = 'Shell command — e.g. dir, git status, npm test (runs as a command, not AI chat)';
+    else if (tpl.name === 'dsh') ph.placeholder = 'Ask anything — runs a DSH AI dialogue in the workspace';
+    else if (tpl.name === 'codex-exec') ph.placeholder = 'Your task for Codex, e.g. "fix the login bug"';
+    else if (tpl.name === 'claude-stream') ph.placeholder = 'Your message to Claude';
+    else if (tpl.type === 'interactive') ph.placeholder = 'First prompt (optional)';
+    else ph.placeholder = 'Task or command (see template description)';
+  }
   if (lbl && hint) {
-    if (tpl && tpl.type === 'interactive') {
+    if (tpl && tpl.name === 'shell') {
+      lbl.textContent = 'Prompt (required)';
+      hint.textContent = '⚠️ Runs your prompt as a SHELL COMMAND, not AI chat. For an AI dialogue use the dsh (or codex) template.';
+    } else if (tpl && tpl.name === 'dsh') {
+      lbl.textContent = 'Prompt (required)';
+      hint.textContent = 'Runs one DSH headless AI dialogue — watch reasoning/tools live, then Continue from its detail page to keep chatting.';
+    } else if (tpl && tpl.type === 'interactive') {
       lbl.textContent = 'Prompt (optional)';
       hint.textContent = 'Sent as the first prompt line to the interactive session.';
     } else if (tpl && tpl.type === 'oneshot') {
@@ -1057,10 +1099,12 @@ async function submitNewSession(e) {
   const body = { machineId, workspace, template };
   if (prompt.trim()) body.prompt = prompt;
   if (label) body.label = label;
+  if (state.resume && state.resume.sessionId) body.resumeId = state.resume.sessionId;
   const res = await api('/api/sessions', { method: 'POST', body });
   btn.disabled = false;
   btn.textContent = oldLabel;
   if (res.error) return;                 // api() toasted the server message
+  state.resume = null;
   upsertSession(res);
   showView('session', { sessionId: res.id, sessionsMachineId: res.machineId });
 }
@@ -1648,6 +1692,13 @@ document.body.addEventListener('click', (e) => {
     case 'open-session': showView('session', { sessionId: id }); break;
     case 'session-stop': stopSession(id); break;
     case 'session-delete': deleteSession(id); break;
+    case 'dsh-continue': {
+      const s = findSession(id);
+      if (s && s.externalId) {
+        showView('new-session', { resume: { sessionId: s.externalId, machineId: s.machineId, workspace: s.workspace, template: s.template } });
+      }
+      break;
+    }
     case 'open-workspace': openFilesAt(id, path); break;
     case 'fs-root':
       state.files.root = path;
@@ -1691,6 +1742,10 @@ document.body.addEventListener('click', (e) => {
     case 'picker-mkdir-create': createPickerFolder(); break;
     case 'picker-mkdir-cancel':
       if (state.picker) { state.picker.mkdirOpen = false; renderPicker(); }
+      break;
+    case 'ns-resume-clear':
+      state.resume = null;
+      renderNewSession();
       break;
     case 'preview-close': closeOverlay('preview'); break;
     case 'file-download': downloadFile(mid, path, name); break;

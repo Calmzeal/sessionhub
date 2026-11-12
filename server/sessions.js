@@ -36,6 +36,85 @@ function hhmm(ts) {
 }
 
 /**
+ * Transform one line of a `dsh --profile headless --json` event stream into a
+ * human-readable phone line. Parses defensively (the event schema may drift
+ * across DSH versions). Returns null to suppress the line (session metadata),
+ * otherwise the display string. Captures the run's sessionId so the phone can
+ * continue the same conversation later.
+ */
+function transformDshLine(line, session, onExternalId) {
+  let obj = null;
+  try { obj = JSON.parse(line); } catch (e) { return line; }
+  if (!obj || typeof obj !== 'object' || typeof obj.type !== 'string') return line;
+  const captureId = (o) => {
+    const sid = o && typeof o.sessionId === 'string' ? o.sessionId : null;
+    if (sid && session && session.externalId !== sid) {
+      session.externalId = sid;
+      if (onExternalId) onExternalId(sid);
+    }
+  };
+  const pickText = (o, keys) => {
+    for (const k of keys) {
+      const v = o && o[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+      if (Array.isArray(v)) {
+        const parts = v.map((it) => (it && typeof it.text === 'string' ? it.text : '')).filter(Boolean);
+        if (parts.length) return parts.join('\n');
+      }
+      if (v && typeof v === 'object' && typeof v.text === 'string' && v.text.trim()) return v.text.trim();
+    }
+    return null;
+  };
+  const short = (v, n) => {
+    const s = typeof v === 'string' ? v : JSON.stringify(v);
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  };
+  switch (obj.type) {
+    case 'session':
+      captureId(obj);
+      return null; // metadata only — not shown on the phone
+    case 'final': {
+      captureId(obj);
+      let reason = '';
+      if (obj.reason && typeof obj.reason === 'object' && obj.reason.kind) reason = obj.reason.kind;
+      const txt = pickText(obj, ['text', 'answer']);
+      return '✅ done' + (reason ? ` · ${reason}` : '') + (txt ? ` · ${txt}` : '');
+    }
+    case 'text': {
+      const t = pickText(obj, ['text', 'content', 'message']);
+      return t ? `💬 ${t}` : null;
+    }
+    case 'thinking': {
+      const t = pickText(obj, ['thinking', 'text', 'content']);
+      return t ? `💭 ${t}` : null;
+    }
+    case 'tool_call': {
+      const name = obj.name || obj.tool || (obj.function && obj.function.name) || (obj.payload && obj.payload.name) || 'tool';
+      const args = obj.arguments || obj.args || obj.input || (obj.function && obj.function.arguments) || (obj.payload && obj.payload.arguments) || '';
+      const a = short(args, 300);
+      return `🔧 ${name}${a ? `(${a})` : ''}`;
+    }
+    case 'tool_result': {
+      const err = obj.error ? short(obj.error, 300) : null;
+      if (err) return `📦 ⚠ ${err}`;
+      const out = pickText(obj, ['output']);
+      const status = obj.status ? short(obj.status, 120) : null;
+      return `📦 ${out ? short(out, 300) : status || 'done'}`;
+    }
+    case 'status': {
+      const t = pickText(obj, ['status', 'phase', 'message']);
+      return t ? `⋯ ${t}` : null;
+    }
+    case 'error': {
+      const t = pickText(obj, ['message', 'error']);
+      return `⚠️ ${t || 'error'}`;
+    }
+    default:
+      return '📄 ' + short(JSON.stringify(obj), 400);
+  }
+}
+
+/**
  * Resolve a prompt into the line that will be written to stdin.
  * With jsonInput: jsonInput with {prompt} replaced by the JSON-string-escaped
  * prompt text (JSON.stringify(prompt).slice(1, -1)).
@@ -90,7 +169,7 @@ class Sessions extends EventEmitter {
    * Create a session. Validates machine/workspace/template per SPEC, records
    * the session as 'pending', then dispatches (local runner / remote agent).
    */
-  async create({ machineId, workspace, template, prompt, label }) {
+  async create({ machineId, workspace, template, prompt, label, resumeId }) {
     const machine = this.machines.get(machineId);
     if (!machine) throw httpError(404, 'machine-unknown', `unknown machine: ${machineId}`);
     if (machine.status !== 'connected') throw httpError(409, 'machine-offline', `machine "${machineId}" is offline`);
@@ -124,6 +203,17 @@ class Sessions extends EventEmitter {
     }
 
     const command = this._resolveCommand(tpl, machine.os);
+    // {resumeArg} placeholder: continues a previous conversation (e.g. dsh
+    // --session-id). Empty unless a validated resumeId was supplied.
+    let resumeArg = '';
+    if (typeof resumeId === 'string' && resumeId.trim()) {
+      const rid = resumeId.trim();
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(rid)) {
+        throw httpError(400, 'bad-resume-id', 'resumeId contains invalid characters');
+      }
+      resumeArg = ` --session-id "${rid}"`;
+    }
+    const resolvedCommand = command.split('{resumeArg}').join(resumeArg);
     const now = Date.now();
     const id = makeSessionId();
     const session = {
@@ -139,7 +229,9 @@ class Sessions extends EventEmitter {
       endedAt: null,
       exitCode: null,
       error: null,
-      command,
+      command: resolvedCommand,
+      externalId: null, // e.g. the dsh session id, extracted from output
+      _transform: tpl.outputTransform === 'dsh-json' ? 'dsh-json' : null,
       lines: [],
       lineBytes: 0,
       logFile: null,
@@ -168,7 +260,7 @@ class Sessions extends EventEmitter {
         this._finalize(session, { status: 'error', error: 'runner is not available' });
         return this.get(id);
       }
-      this.runner.start({ id, cwd: resolvedWorkspace, command, env, initialPrompt, initialDelayMs })
+      this.runner.start({ id, cwd: resolvedWorkspace, command: resolvedCommand, env, initialPrompt, initialDelayMs })
         .then(() => {
           // A stop() that arrived before the child spawned finalized the
           // session as 'stopped' — the child exists now, so kill it for real.
@@ -188,7 +280,7 @@ class Sessions extends EventEmitter {
         type: 'session.start',
         id,
         cwd: resolvedWorkspace,
-        command,
+        command: resolvedCommand,
         env,
         initialPrompt,
         initialDelayMs
@@ -315,6 +407,11 @@ class Sessions extends EventEmitter {
   handleOutput(id, stream, line) {
     const s = this.byId.get(id);
     if (!s) return;
+    if (s._transform === 'dsh-json') {
+      const transformed = transformDshLine(line, s, () => { this._emitSession(s.id); });
+      if (transformed === null) return; // suppressed metadata event
+      line = transformed;
+    }
     const entry = this._appendRing(s, stream, line);
     if (!s._watched) {
       const logStream = this._logStream(s);
@@ -629,6 +726,7 @@ class Sessions extends EventEmitter {
       exitCode: s.exitCode,
       error: s.error,
       command: s.command,
+      externalId: s.externalId || null,
       logFile: s.logFile
     };
     if (withLines) out.lines = s.lines.slice(-50);

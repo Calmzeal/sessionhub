@@ -65,7 +65,7 @@ function createApp({ config, machines, sessions, version }) {
   app.use(express.static(webDir, {
     setHeaders(res, filePath) {
       const base = path.basename(filePath);
-      if (base === 'index.html' || base === 'sw.js') {
+      if (base === 'index.html' || base === 'sw.js' || base === 'app.js' || base === 'style.css') {
         res.setHeader('Cache-Control', 'no-cache');
       }
     }
@@ -131,7 +131,8 @@ function createApp({ config, machines, sessions, version }) {
       workspace: body.workspace,
       template: body.template,
       prompt: typeof body.prompt === 'string' ? body.prompt : null,
-      label: typeof body.label === 'string' ? body.label : null
+      label: typeof body.label === 'string' ? body.label : null,
+      resumeId: typeof body.resumeId === 'string' ? body.resumeId : null
     });
     res.status(201).json(session);
   }));

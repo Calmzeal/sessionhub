@@ -39,6 +39,16 @@
         "darwin": "\"$SESSIONHUB_PROMPT\"",
         "linux": "\"$SESSIONHUB_PROMPT\""
       }
+    },
+    "dsh": {
+      "type": "oneshot",
+      "description": "DeepSeek Harness AI dialogue (headless dsh — live reasoning/tool progress + final answer; one prompt per session, Continue resumes the conversation)",
+      "outputTransform": "dsh-json",
+      "command": {
+        "win32": "set \"ELECTRON_RUN_AS_NODE=1\"&& \"%LOCALAPPDATA%\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe\" \"%LOCALAPPDATA%\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js\" --profile headless --json{resumeArg} \"%SESSIONHUB_PROMPT%\"",
+        "darwin": "dsh --profile headless --json{resumeArg} \"$SESSIONHUB_PROMPT\"",
+        "linux": "dsh --profile headless --json{resumeArg} \"$SESSIONHUB_PROMPT\""
+      }
     }
   }
 }

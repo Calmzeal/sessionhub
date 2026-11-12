@@ -113,6 +113,10 @@
         <label for="ns-prompt" id="ns-prompt-label">Prompt</label>
         <textarea id="ns-prompt" rows="4" placeholder="What should the agent do?"></textarea>
         <div id="ns-hint" class="muted small"></div>
+        <div id="ns-resume" class="resume-chip" hidden>
+          <span id="ns-resume-text"></span>
+          <button type="button" class="btn ghost sm" data-action="ns-resume-clear" aria-label="Clear continue">✕</button>
+        </div>
         <button type="submit" class="btn primary wide" id="ns-submit">Create Session</button>
       </form>
     </section>

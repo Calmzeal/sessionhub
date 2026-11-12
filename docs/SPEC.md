@@ -464,6 +464,21 @@ monitoring. Create a session from this workspace to control an agent from your p
 - Test 2 (agent watcher): second temp dir + fixture copy; agent `mac-sim` config gets the same
   `codexWatch` block; assert a watched session appears under machine `mac-sim`.
 
+## DSH dialogue templates (v1.2)
+
+- Template keys: `outputTransform: 'dsh-json'` converts a `dsh --profile headless
+  --json` NDJSON stream into phone-readable lines (`⋯ status`, `💭 thinking`,
+  `💬 text`, `🔧 tool_call`, `📦 tool_result`, `✅ done · reason · answer`); the run's
+  `sessionId` is captured into the session record's `externalId`.
+- `{resumeArg}` placeholder in `command` → replaced by ` --session-id "<id>"` when the
+  create request carries a validated `resumeId` (`/^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/`),
+  else removed — enables multi-turn dialogues from the phone.
+- The web UI shows a **↻ Continue** button on finished sessions with `externalId`,
+  prefilling a new session (same machine/workspace/template + resumeId chip).
+- Child output encoding: the runner keeps raw byte buffers per stream and decodes each
+  line strict-UTF-8 first, falling back to the Windows console codepage (GBK) — no
+  `setEncoding` on child streams.
+
 ## Conventions
 
 - CommonJS everywhere. `'use strict';` at top of files.

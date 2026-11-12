@@ -591,6 +591,19 @@ body:not(.tabbar-visible) #toasts { bottom: calc(env(safe-area-inset-bottom) + 1
   font-size: 14px;
 }
 .mkdir-row input:focus { outline: none; border-color: var(--accent); }
+.resume-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-soft, var(--text));
+}
+.resume-chip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview-img { max-width: 100%; border-radius: 10px; display: block; margin: 0 auto; }
 .preview-pre {
   background: var(--surface2);
