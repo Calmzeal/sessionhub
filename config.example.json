@@ -1,0 +1,44 @@
+{
+  "port": 8742,
+  "host": "0.0.0.0",
+  "authToken": "REPLACE_WITH_RANDOM_TOKEN",
+  "machineName": "win-desktop",
+  "allowedRoots": [
+    "C:\\Users\\you\\Projects"
+  ],
+  "dataDir": "./data",
+  "maxSessionsPerMachine": 8,
+  "logRingLines": 2000,
+  "logByteCap": 4194304,
+  "tls": {
+    "certFile": null,
+    "keyFile": null
+  },
+  "templates": {
+    "codex-exec": {
+      "type": "oneshot",
+      "description": "OpenAI Codex one-shot run (stream-json output). Edit flags to match your Codex version.",
+      "command": {
+        "win32": "codex exec --full-auto -o stream-json \"%SESSIONHUB_PROMPT%\"",
+        "darwin": "codex exec --full-auto -o stream-json \"$SESSIONHUB_PROMPT\"",
+        "linux": "codex exec --full-auto -o stream-json \"$SESSIONHUB_PROMPT\""
+      }
+    },
+    "claude-stream": {
+      "type": "interactive",
+      "description": "Claude Code interactive session via stream-json stdin (prompts go to stdin).",
+      "command": "claude --input-format stream-json --output-format stream-json --verbose",
+      "jsonInput": "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"{prompt}\"}]}}",
+      "initialDelayMs": 1000
+    },
+    "shell": {
+      "type": "oneshot",
+      "description": "Run any shell command inside the workspace (prompt is the command).",
+      "command": {
+        "win32": "%SESSIONHUB_PROMPT%",
+        "darwin": "\"$SESSIONHUB_PROMPT\"",
+        "linux": "\"$SESSIONHUB_PROMPT\""
+      }
+    }
+  }
+}

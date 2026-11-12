@@ -1,0 +1,6 @@
+{"timestamp":"2026-11-13T00:45:00+08:00","type":"session_meta","payload":{"cwd":"C:\\Users\\me\\dev\\sample-workspace","id":"rollout-sample"}}
+{"timestamp":"2026-11-13T00:45:01+08:00","type":"message","payload":{"role":"user","content":[{"type":"input_text","text":"Fix the login bug"}]}}
+{"timestamp":"2026-11-13T00:45:02+08:00","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I'll look at the auth module first."}]}}
+{"timestamp":"2026-11-13T00:45:03+08:00","type":"response_item","payload":{"type":"function_call","name":"bash","arguments":"{\"command\":\"ls\"}","call_id":"call_1"}}
+{"timestamp":"2026-11-13T00:45:04+08:00","type":"event_msg","payload":{"type":"agent_message","message":"Editing src/auth.ts"}}
+{"timestamp":"2026-11-13T00:45:05+08:00","type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":"auth.ts\nlogin.ts\n"}}

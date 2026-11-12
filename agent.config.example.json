@@ -1,0 +1,15 @@
+{
+  "hubUrl": "ws://192.168.1.50:8742",
+  "token": "same-token-as-hub-config",
+  "name": "mac-work",
+  "allowedRoots": [
+    "/Users/you/dev"
+  ],
+  "maxSessions": 4,
+  "codexWatch": {
+    "enabled": false,
+    "sessionsDir": "~/.codex",
+    "pollMs": 2000,
+    "idleMs": 600000
+  }
+}

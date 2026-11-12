@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="SessionHub — manage AI agent sessions across machines">
+  <title>SessionHub</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+  <script>
+    /* Apply stored theme before first paint to avoid a flash. */
+    try {
+      var t = localStorage.getItem('sessionhub.theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { /* ignore */ }
+  </script>
+</head>
+<body>
+  <div id="app">
+
+    <!-- ============ CONNECT ============ -->
+    <section data-view="connect" id="view-connect">
+      <div class="connect-card card">
+        <img class="logo-big" src="./icons/icon.svg" alt="SessionHub logo">
+        <h1>SessionHub</h1>
+        <p class="muted">Manage AI agent sessions across your machines.</p>
+        <form id="connect-form" novalidate>
+          <label for="connect-url">Server URL</label>
+          <input id="connect-url" type="text" inputmode="url" placeholder="http://192.168.1.50:8742"
+                 autocomplete="url" autocapitalize="off" spellcheck="false">
+          <label for="connect-token">Token</label>
+          <div class="token-row">
+            <input id="connect-token" type="password" placeholder="hub token"
+                   autocomplete="off" autocapitalize="off" spellcheck="false">
+            <button type="button" class="btn ghost" id="token-toggle" aria-label="Show token">👁</button>
+          </div>
+          <div id="connect-error" class="form-error" hidden></div>
+          <button type="submit" class="btn primary wide" id="connect-submit">Connect</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ MACHINES ============ -->
+    <section data-view="machines" id="view-machines">
+      <header class="view-head">
+        <div class="head-row">
+          <div class="head-title">
+            <img class="logo" src="./icons/icon.svg" alt="">
+            <h1>SessionHub</h1>
+          </div>
+          <div class="head-actions">
+            <span class="chip ws-chip" data-st="off" hidden>
+              <span class="dot"></span><span class="ws-label">Offline</span>
+            </span>
+            <button class="btn ghost icon-btn" data-action="refresh-state" title="Refresh" aria-label="Refresh">
+              <span class="ri">⟳</span>
+            </button>
+          </div>
+        </div>
+      </header>
+      <div id="machines-list" class="list"></div>
+    </section>
+
+    <!-- ============ SESSIONS ============ -->
+    <section data-view="sessions" id="view-sessions">
+      <header class="view-head">
+        <div class="head-row">
+          <button class="btn ghost sm" data-action="nav" data-view="machines" aria-label="Back">←</button>
+          <div class="head-title grow"><h1 id="sessions-title">Sessions</h1></div>
+          <div class="head-actions">
+            <span class="chip ws-chip" data-st="off" hidden>
+              <span class="dot"></span><span class="ws-label">Offline</span>
+            </span>
+            <button class="btn ghost icon-btn" data-action="refresh-state" title="Refresh" aria-label="Refresh">
+              <span class="ri">⟳</span>
+            </button>
+            <button class="btn primary sm" data-action="new-session" id="ns-top">+ New</button>
+          </div>
+        </div>
+      </header>
+      <div id="sessions-list" class="list"></div>
+    </section>
+
+    <!-- ============ SESSION DETAIL (rendered by JS) ============ -->
+    <section data-view="session" id="view-session"></section>
+
+    <!-- ============ NEW SESSION ============ -->
+    <section data-view="new-session" id="view-new-session">
+      <header class="view-head">
+        <div class="head-row">
+          <button class="btn ghost sm" data-action="nav" data-view="sessions" id="ns-back" aria-label="Back">←</button>
+          <h1 class="grow">New Session</h1>
+        </div>
+      </header>
+      <form id="ns-form" class="form-card card" novalidate>
+        <label for="ns-machine">Machine</label>
+        <select id="ns-machine"></select>
+        <label for="ns-workspace">Workspace</label>
+        <div class="input-row">
+          <input id="ns-workspace" type="text" placeholder="/path/to/project"
+                 autocapitalize="off" autocomplete="off" spellcheck="false">
+          <button type="button" class="btn ghost" data-action="picker-open">Browse…</button>
+        </div>
+        <label for="ns-template">Template</label>
+        <select id="ns-template"></select>
+        <div id="ns-template-desc" class="muted small"></div>
+        <label for="ns-label">Label <span class="muted small">(optional)</span></label>
+        <input id="ns-label" type="text" placeholder="Fix the login bug" autocomplete="off">
+        <label for="ns-prompt" id="ns-prompt-label">Prompt</label>
+        <textarea id="ns-prompt" rows="4" placeholder="What should the agent do?"></textarea>
+        <div id="ns-hint" class="muted small"></div>
+        <button type="submit" class="btn primary wide" id="ns-submit">Create Session</button>
+      </form>
+    </section>
+
+    <!-- ============ FILES ============ -->
+    <section data-view="files" id="view-files">
+      <header class="view-head">
+        <div class="head-row">
+          <button class="btn ghost sm" data-action="nav" data-view="machines" id="files-back" aria-label="Back">←</button>
+          <h1 class="grow">Files</h1>
+        </div>
+        <div class="head-row sub">
+          <select id="fs-machine" aria-label="Machine"></select>
+        </div>
+      </header>
+      <div class="fs-body">
+        <div id="fs-roots" class="seg-row" hidden></div>
+        <div id="fs-crumbs" class="crumbs" aria-label="Path"></div>
+        <div id="fs-list" class="list"></div>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section data-view="settings" id="view-settings">
+      <header class="view-head">
+        <div class="head-row"><h1>Settings</h1></div>
+      </header>
+      <form id="settings-form" class="form-card card" novalidate>
+        <label for="set-url">Server URL</label>
+        <input id="set-url" type="text" inputmode="url" placeholder="http://192.168.1.50:8742"
+               autocomplete="url" autocapitalize="off" spellcheck="false">
+        <label for="set-token">Token</label>
+        <div class="token-row">
+          <input id="set-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button type="button" class="btn ghost" id="set-token-toggle" aria-label="Show token">👁</button>
+        </div>
+        <button type="submit" class="btn primary wide">Save &amp; reconnect</button>
+      </form>
+      <div class="form-card card">
+        <h2>Appearance</h2>
+        <div class="seg-control" id="theme-control" role="group" aria-label="Theme">
+          <button type="button" data-action="theme" data-mode="auto">System</button>
+          <button type="button" data-action="theme" data-mode="dark">Dark</button>
+          <button type="button" data-action="theme" data-mode="light">Light</button>
+        </div>
+      </div>
+      <div class="form-card card">
+        <h2>About</h2>
+        <p id="health-line" class="muted">Checking hub…</p>
+        <p id="version-line" class="muted small"></p>
+      </div>
+      <div class="form-card card">
+        <h2>Add to home screen</h2>
+        <p class="muted small">On your phone (Android Chrome): open the <strong>⋮ menu</strong> →
+          <strong>Add to Home screen</strong> (or <strong>Install app</strong>). SessionHub will then
+          open full-screen like a native app.</p>
+      </div>
+      <div class="form-card card">
+        <button type="button" class="btn danger wide" data-action="disconnect">Disconnect</button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ============ BOTTOM TAB BAR ============ -->
+  <nav id="tabbar" hidden aria-label="Main navigation">
+    <button type="button" data-action="tab" data-view="machines">
+      <span class="tb-ico">🖥️</span>Machines
+    </button>
+    <button type="button" data-action="tab" data-view="settings">
+      <span class="tb-ico">⚙️</span>Settings
+    </button>
+  </nav>
+
+  <!-- ============ TOASTS ============ -->
+  <div id="toasts" aria-live="polite"></div>
+
+  <!-- ============ FILE PREVIEW SHEET ============ -->
+  <div id="preview" class="overlay" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2 id="preview-title">File</h2>
+        <button class="btn ghost sm" data-action="preview-close" aria-label="Close">✕</button>
+      </div>
+      <div id="preview-body" class="sheet-body"></div>
+    </div>
+  </div>
+
+  <!-- ============ FOLDER PICKER MODAL ============ -->
+  <div id="picker" class="overlay" hidden>
+    <div class="sheet full">
+      <div class="sheet-head">
+        <button class="btn ghost sm" data-action="picker-close" aria-label="Close">✕</button>
+        <h2 class="grow">Choose folder</h2>
+        <button class="btn primary sm" data-action="picker-choose">Choose</button>
+      </div>
+      <div class="picker-body">
+        <div class="head-row sub">
+          <select id="picker-machine" aria-label="Machine"></select>
+        </div>
+        <div id="picker-roots" class="seg-row" hidden></div>
+        <div id="picker-crumbs" class="crumbs" aria-label="Path"></div>
+        <div id="picker-list" class="list grow"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report JS errors to the hub log for remote diagnosis. -->
+  <script>
+    window.addEventListener('error', function (e) {
+      try {
+        navigator.sendBeacon('./api/telemetry', new Blob([JSON.stringify({
+          type: 'error', msg: String((e && e.message) || e), src: String((e && e.filename) || ''), line: Number((e && e.lineno) || 0)
+        })], { type: 'application/json' }));
+      } catch (x) { /* ignore */ }
+    });
+  </script>
+  <script src="./app.js"></script>
+  <!-- Progressive enhancement: make the connect screen visible even if app.js
+       fails to load/parse (e.g. a flaky relay truncated it). app.js takes over
+       when it boots. Placed after the DOM so the element exists. -->
+  <script>try { document.getElementById('view-connect').classList.add('active'); } catch (e) {}</script>
+</body>
+</html>

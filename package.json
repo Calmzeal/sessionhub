@@ -1,0 +1,19 @@
+{
+  "name": "sessionhub",
+  "version": "1.0.0",
+  "description": "Mobile-accessible manager for AI agent sessions across machines (Windows/WSL/macOS)",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "agent": "node agent/agent.js",
+    "smoke": "node scripts/smoke-test.js",
+    "gen-token": "node scripts/gen-token.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
