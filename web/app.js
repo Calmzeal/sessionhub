@@ -10,8 +10,10 @@ const APP_VERSION = '1.0.0';
 const LOG_CAP_LINES = 2000;
 
 const LS = {
-  url: 'sessionhub.url',
-  token: 'sessionhub.token',
+  url: 'sessionhub.url',               // legacy (migrated on boot, then removed)
+  token: 'sessionhub.token',           // legacy (migrated on boot, then removed)
+  servers: 'sessionhub.servers',       // v1.3: [{id, name, url, token}]
+  serverId: 'sessionhub.serverId',     // v1.3: active server id
   theme: 'sessionhub.theme',
   filesMachine: 'sessionhub.filesMachine',
   fsRoot: 'sessionhub.fsroot.',
@@ -113,16 +115,94 @@ function debounce(fn, ms) {
   };
 }
 
-/* ---------- storage ---------- */
+/* ---------- storage: multi-server (v1.3) ---------- */
 
-function getUrl() {
-  const u = localStorage.getItem(LS.url);
-  return String(u || location.origin).replace(/\/+$/, '');
+function loadServers() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS.servers) || '[]');
+    if (Array.isArray(arr)) {
+      return arr.filter((s) => s && typeof s === 'object' && typeof s.url === 'string' && s.url);
+    }
+  } catch (e) { /* corrupt JSON — start fresh */ }
+  return [];
 }
-function setUrl(u) { localStorage.setItem(LS.url, String(u).replace(/\/+$/, '')); }
-function getToken() { return localStorage.getItem(LS.token) || ''; }
-function setToken(t) { localStorage.setItem(LS.token, t); }
-function clearToken() { localStorage.removeItem(LS.token); }
+function saveServers(list) {
+  try { localStorage.setItem(LS.servers, JSON.stringify(list)); } catch (e) { /* ignore */ }
+}
+function servers() { return loadServers(); }
+
+function activeServer() {
+  const id = localStorage.getItem(LS.serverId) || '';
+  return loadServers().find((s) => s.id === id) || null;
+}
+function setActiveServer(id) {
+  try { localStorage.setItem(LS.serverId, id); } catch (e) { /* ignore */ }
+}
+function genServerId() {
+  return 'srv-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+}
+function hostLabel(url) {
+  try { return new URL(url).host || url; } catch (e) { return url; }
+}
+
+/** Everything below (api, ws, health) reads the ACTIVE server. */
+function getUrl() {
+  const s = activeServer();
+  return s ? String(s.url).replace(/\/+$/, '') : '';
+}
+function getToken() {
+  const s = activeServer();
+  return (s && s.token) || '';
+}
+
+/** Insert or update by normalized URL (dedupe); activates and returns the server. */
+function upsertServer(entry) {
+  const url = normalizeServerUrl(entry.url);
+  const list = loadServers();
+  let srv = list.find((s) => normalizeServerUrl(s.url) === url);
+  if (srv) {
+    srv.token = entry.token;
+    if (entry.name) srv.name = entry.name;
+    if (url) srv.url = url;
+  } else {
+    srv = { id: genServerId(), name: entry.name || hostLabel(url), url, token: entry.token };
+    list.push(srv);
+  }
+  saveServers(list);
+  setActiveServer(srv.id);
+  return srv;
+}
+
+/** Patch the active server entry in place; returns the updated entry or null. */
+function updateActiveServer(patch) {
+  const a = activeServer();
+  if (!a) return null;
+  const updated = { ...a, ...patch };
+  saveServers(loadServers().map((s) => (s.id === a.id ? updated : s)));
+  return updated;
+}
+function clearActiveToken() { updateActiveServer({ token: '' }); }
+
+/** v1.3 migration: legacy single-server keys → one default server, then remove them. */
+function migrateLegacyStorage() {
+  try {
+    if (localStorage.getItem(LS.servers)) return;
+    const url = localStorage.getItem(LS.url);
+    const token = localStorage.getItem(LS.token);
+    if (url || token) {
+      const srv = {
+        id: genServerId(),
+        name: 'hub',
+        url: normalizeServerUrl(String(url || location.origin)),
+        token: token || '',
+      };
+      saveServers([srv]);
+      setActiveServer(srv.id);
+    }
+    localStorage.removeItem(LS.url);
+    localStorage.removeItem(LS.token);
+  } catch (e) { /* ignore */ }
+}
 
 function normalizeServerUrl(u) {
   u = String(u || '').trim();
@@ -208,7 +288,7 @@ async function rawFetch(path) {
 }
 
 function handleAuthFailure() {
-  clearToken();           // keep the server URL so the user can retry
+  clearActiveToken();      // keep the server entry + URL so the user can re-enter the token
   teardownWs();
   state.wsState = 'off';
   state.connectError = 'The server rejected this token (401). Check the token and try again.';
@@ -307,6 +387,16 @@ function updateWsChip() {
     chip.dataset.st = state.wsState;
     const l = chip.querySelector('.ws-label');
     if (l) l.textContent = label;
+  });
+}
+
+/** v1.3: header chip showing the active server name (hidden when none). */
+function updateServerChip() {
+  const srv = activeServer();
+  $$('.server-chip').forEach((chip) => {
+    chip.hidden = !srv;
+    const n = chip.querySelector('.server-name');
+    if (n) n.textContent = srv ? (srv.name || hostLabel(srv.url)) : '';
   });
 }
 
@@ -499,6 +589,7 @@ function renderCurrent() {
   }
   updateTabbar();
   updateWsChip();
+  updateServerChip();
 }
 
 function updateTabbar() {
@@ -516,10 +607,14 @@ function updateTabbar() {
    ============================================================ */
 
 function renderConnect() {
+  const srv = activeServer();
+  const needsFix = !!srv && !srv.token;   // returning after 401/disconnect → prefill this server
+  const nameEl = $('#connect-name');
+  if (nameEl) nameEl.value = needsFix ? (srv.name || '') : '';
   const urlEl = $('#connect-url');
-  if (urlEl) urlEl.value = localStorage.getItem(LS.url) || location.origin;
+  if (urlEl) urlEl.value = needsFix ? srv.url : location.origin;
   const tokEl = $('#connect-token');
-  if (tokEl) tokEl.value = getToken();
+  if (tokEl) tokEl.value = '';
   const err = $('#connect-error');
   if (err) {
     if (state.connectError) { err.textContent = state.connectError; err.hidden = false; }
@@ -533,6 +628,7 @@ async function submitConnect(e) {
   const errEl = $('#connect-error');
   const url = normalizeServerUrl($('#connect-url').value || location.origin);
   const token = $('#connect-token').value.trim();
+  let name = $('#connect-name').value.trim();
   if (!url) {
     errEl.textContent = 'Enter a valid server URL (e.g. http://192.168.1.50:8742).';
     errEl.hidden = false;
@@ -543,61 +639,63 @@ async function submitConnect(e) {
     errEl.hidden = false;
     return;
   }
+  if (!name) name = hostLabel(url);       // default: host of the URL
   btn.disabled = true;
   const oldLabel = btn.textContent;
   btn.textContent = 'Connecting…';
   errEl.hidden = true;
-  setUrl(url);
-  setToken(token);
+  const fail = (msg) => {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+    state.connectError = msg;
+    renderConnect();
+  };
 
   // 1) Health probe with the Authorization header (health itself is auth-exempt per SPEC).
   let healthRes = null;
   try {
     healthRes = await fetch(url + '/api/health', { headers: { Authorization: 'Bearer ' + token } });
   } catch (err) {
-    btn.disabled = false; btn.textContent = oldLabel;
-    state.connectError = 'Could not reach the hub at ' + url + '. Check the address and that the server is running.';
-    renderConnect();
+    fail('Could not reach the hub at ' + url + '. Check the address and that the server is running.');
     return;
   }
   if (healthRes.status === 401) {
-    clearToken();
-    btn.disabled = false; btn.textContent = oldLabel;
-    state.connectError = 'The server rejected this token (401). Check the token and try again.';
-    renderConnect();
+    fail('The server rejected this token (401). Check the token and try again.');
     return;
   }
   if (!healthRes.ok) {
-    btn.disabled = false; btn.textContent = oldLabel;
-    state.connectError = 'The hub at ' + url + ' answered HTTP ' + healthRes.status + '.';
-    renderConnect();
+    fail('The hub at ' + url + ' answered HTTP ' + healthRes.status + '.');
     return;
   }
   try { state.health = await healthRes.json(); } catch (e) { state.health = null; }
 
-  // 2) Health is auth-exempt, so verify the token by loading state.
-  const st = await api('/api/state', { toast: false });
-  btn.disabled = false;
-  btn.textContent = oldLabel;
-  if (st.error) {
-    if (st.error.code === 'auth-required') {
-      state.connectError = 'The server rejected this token (401). Check the token and try again.';
-      renderConnect();
+  // 2) Health is auth-exempt, so verify the token by loading state from THIS url.
+  let stData = null;
+  try {
+    const stRes = await fetch(url + '/api/state', { headers: { Authorization: 'Bearer ' + token } });
+    if (stRes.status === 401) {
+      fail('The server rejected this token (401). Check the token and try again.');
       return;
     }
-    state.connectError = 'Connected, but could not load state: ' + (st.error.message || st.error.code) + '.';
-    renderConnect();
+    if (!stRes.ok) {
+      fail('The hub answered HTTP ' + stRes.status + ' while loading state.');
+      return;
+    }
+    stData = await stRes.json();
+  } catch (err) {
+    fail('Could not load state from ' + url + '.');
     return;
   }
+
+  // 3) Save (dedupes by URL: same URL → update token+name instead of duplicating) + activate.
+  upsertServer({ url, token, name });
   state.connectError = '';
-  state.machines = st.machines || [];
-  state.sessions = st.sessions || [];
+  state.machines = stData.machines || [];
+  state.sessions = stData.sessions || [];
   state.loaded = true;
   seedPreviews();
   showView('machines');
-  connectWS();
-  loadTemplates({ quiet: true });
-  fetchHealth();
+  applyActiveServer({});
 }
 
 /* ============================================================
@@ -1140,15 +1238,25 @@ function pushOverlay() {
   try { history.pushState({ overlay: true }, ''); } catch (e) { /* ignore */ }
 }
 
-/** Close an overlay; pops the overlay history entry when one exists. */
+function viewParams() {
+  return {
+    sessionsMachineId: state.sessionsMachineId,
+    sessionId: state.sessionId,
+    newMachineId: state.newMachineId,
+    resume: state.resume,
+  };
+}
+
+/** Close an overlay. Replaces the overlay history marker with a normal view entry
+    (no async popstate race, back button behaves correctly afterwards). */
 function closeOverlay(kind) {
   if (state.overlayOpen) {
     state.overlayOpen = false;
-    try { history.back(); } catch (e) { if (kind === 'preview') closePreview(); else closePicker(); }
-  } else {
-    if (kind === 'preview') closePreview();
-    else closePicker();
+    try { history.replaceState({ view: state.view, params: viewParams() }, ''); } catch (e) { /* ignore */ }
   }
+  if (kind === 'preview') closePreview();
+  else if (kind === 'servers') closeServerPop();
+  else closePicker();
 }
 
 async function pickerLoadMachine(mid) {
@@ -1598,25 +1706,133 @@ async function saveSettings(e) {
   const token = $('#set-token').value.trim();
   if (!url) { showToast('Enter a valid server URL', 'error'); return; }
   if (!token) { showToast('Token is required', 'error'); return; }
-  setUrl(url);
-  setToken(token);
+  updateActiveServer({ url, token });   // v1.3: edits the ACTIVE server entry
+  updateServerChip();
   showToast('Saved — reconnecting…');
-  connectWS();                      // re-init the WS with the new url/token
+  connectWS();                          // re-init the WS with the new url/token
   state.machines = [];
   state.sessions = [];
+  state.templates = [];
   state.loaded = false;
+  state.detail = null;
   showView('machines');
   refreshState({ toast: false });
+  loadTemplates({ quiet: true });
   fetchHealth();
 }
 
 function doDisconnect() {
-  clearToken();                     // keep the URL for next time
+  clearActiveToken();                   // keep the server entry + URL for next time
   teardownWs();
   state.wsState = 'off';
   state.connectError = '';
   showToast('Disconnected');
   showView('connect');
+}
+
+/* ============================================================
+   Server switcher popup (v1.3)
+   ============================================================ */
+
+function openServerPop() {
+  $('#server-pop').hidden = false;
+  pushOverlay();
+  renderServerPop();
+}
+
+function closeServerPop() {
+  $('#server-pop').hidden = true;
+}
+
+function renderServerPop() {
+  const list = servers();
+  const active = activeServer();
+  const el = $('#server-pop-list');
+  if (!el) return;
+  el.innerHTML =
+    (list.length
+      ? list.map((s) => {
+        const isActive = active && s.id === active.id;
+        const host = s.url ? hostLabel(s.url) : '';
+        return '<div class="server-row' + (isActive ? ' active' : '') + '" data-action="server-select" data-id="' + esc(s.id) + '">' +
+          '<div class="server-row-main">' +
+          '<span class="server-name">' + esc(s.name || host || s.id) + '</span>' +
+          '<span class="server-host muted">' + esc(host) + '</span>' +
+          '</div>' +
+          (isActive ? '<span class="server-active-tag">✓</span>' : '') +
+          '<button class="btn ghost sm server-remove" data-action="server-remove" data-id="' + esc(s.id) + '" aria-label="Remove server">✕</button>' +
+          '</div>';
+      }).join('')
+      : '<div class="empty">No servers yet — add one.</div>') +
+    '<button class="btn ghost wide server-add" data-action="server-add">＋ Add server</button>';
+}
+
+/** Switch the active server: reset everything, reconnect, reload. */
+function switchServer(id) {
+  const srv = servers().find((s) => s.id === id);
+  if (!srv) return;
+  setActiveServer(id);
+  closeOverlay('servers');
+  showView('machines');
+  applyActiveServer({});
+}
+
+function removeServer(id) {
+  const list = servers();
+  const srv = list.find((s) => s.id === id);
+  if (!srv) return;
+  if (!window.confirm('Remove server "' + (srv.name || hostLabel(srv.url)) + '"?')) return;
+  const wasActive = activeServer() && activeServer().id === id;
+  saveServers(list.filter((s) => s.id !== id));
+  if (wasActive) {
+    const rest = servers();
+    if (rest.length) {
+      setActiveServer(rest[0].id);
+      closeOverlay('servers');
+      showView('machines');
+      applyActiveServer({});
+    } else {
+      localStorage.removeItem(LS.serverId);
+      closeOverlay('servers');
+      teardownWs();
+      state.wsState = 'off';
+      state.machines = [];
+      state.sessions = [];
+      state.loaded = false;
+      showView('connect');
+    }
+  } else {
+    renderServerPop();      // non-active removal: just refresh the list
+  }
+}
+
+/** Reset client state for the newly active server and reconnect everything. */
+function applyActiveServer(opts = {}) {
+  const toast = opts.toast !== false;
+  teardownWs();
+  state.wsState = 'off';
+  state.machines = [];
+  state.sessions = [];
+  state.templates = [];
+  state.loaded = false;
+  state.health = null;
+  state.sessionsMachineId = null;
+  state.sessionId = null;
+  state.detail = null;
+  state.newMachineId = null;
+  state.resume = null;
+  state.previews.clear();
+  state.files = emptyFilesState();
+  state.picker = null;
+  state.preview = null;
+  updateWsChip();
+  updateServerChip();
+  connectWS();
+  refreshState({ toast: false });
+  loadTemplates({ quiet: true });
+  fetchHealth();
+  const srv = activeServer();
+  if (toast && srv) showToast('Connected to ' + (srv.name || hostLabel(srv.url)));
 }
 
 /* ============================================================
@@ -1751,6 +1967,17 @@ document.body.addEventListener('click', (e) => {
     case 'file-download': downloadFile(mid, path, name); break;
     case 'theme': applyTheme(el.dataset.mode); break;
     case 'disconnect': doDisconnect(); break;
+    case 'server-switch': openServerPop(); break;
+    case 'server-pop-close': closeOverlay('servers'); break;
+    case 'server-add':
+      closeOverlay('servers');
+      showView('connect');
+      break;
+    case 'server-select':
+      if (!activeServer() || activeServer().id !== id) switchServer(id);
+      else closeOverlay('servers');
+      break;
+    case 'server-remove': removeServer(id); break;
     default: break;
   }
 });
@@ -1810,6 +2037,7 @@ window.addEventListener('popstate', (ev) => {
     // popping the entry that was pushed when an overlay opened → close overlays
     closePreview();
     closePicker();
+    closeServerPop();
     state.overlayOpen = false;
     return;
   }
@@ -1861,6 +2089,7 @@ setInterval(() => {
    ============================================================ */
 
 (function init() {
+  migrateLegacyStorage();          // v1.3: legacy url/token keys → servers list, then removed
   bindStatic();
   const initial = getToken() ? 'machines' : 'connect';
   showView(initial, {}, { push: false });

@@ -49,6 +49,36 @@ function positiveInt(value, fallback) {
 }
 
 /**
+ * v1.3 hub peers: normalize the `peers` array (hub-as-agent outbound
+ * connections). Per-entry defaults come from the resolved hub config:
+ * machineName -> hub machineName, allowedRoots -> hub allowedRoots,
+ * maxSessions -> maxSessionsPerMachine, codexWatch -> hub codexWatch.
+ * Entries without a usable hubUrl are skipped.
+ */
+function normalizePeers(rawPeers, config) {
+  if (!Array.isArray(rawPeers)) return [];
+  const out = [];
+  for (const p of rawPeers) {
+    if (!p || typeof p !== 'object') continue;
+    if (typeof p.hubUrl !== 'string' || !p.hubUrl) continue;
+    if (!p.hubUrl.startsWith('ws://') && !p.hubUrl.startsWith('wss://')) continue;
+    out.push({
+      hubUrl: p.hubUrl,
+      token: (typeof p.token === 'string' && p.token) ? p.token : config.authToken,
+      machineName: (typeof p.machineName === 'string' && p.machineName.trim()) ? p.machineName.trim() : config.machineName,
+      allowedRoots: Array.isArray(p.allowedRoots)
+        ? p.allowedRoots.filter((r) => typeof r === 'string')
+        : config.allowedRoots.slice(),
+      maxSessions: positiveInt(p.maxSessions, config.maxSessionsPerMachine),
+      codexWatch: (p.codexWatch && typeof p.codexWatch === 'object' && !Array.isArray(p.codexWatch))
+        ? p.codexWatch
+        : config.codexWatch
+    });
+  }
+  return out;
+}
+
+/**
  * Load and resolve the hub configuration.
  * @param {string} [repoRoot] project root used to resolve relative dataDir/tls paths.
  * @returns {object} resolved config
@@ -116,6 +146,9 @@ function loadConfig(repoRoot) {
     console.warn(`[sessionhub] no authToken configured — generated one for this run (copy it to agents and the phone): ${config.authToken}`);
   }
   config.authToken = String(config.authToken);
+
+  // Hub peers (v1.3), normalized against the resolved config above.
+  config.peers = normalizePeers(raw.peers, config);
 
   return config;
 }

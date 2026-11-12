@@ -202,6 +202,24 @@ agent from the phone, start a session from the phone's "New Session" screen inst
 names, and session history never leave the machine. Keep it that way: only commit
 `*.example.json` placeholders.
 
+## One token, many machines
+
+`authToken` is a plain shared secret — put the **same value** in every `config.json`
+(hub) and every `agent.config.json` (agent). Then one token unlocks every machine.
+
+Two ways to see all machines from the phone:
+
+1. **One hub + agents** (simplest): run the hub on one always-on machine (e.g. your
+   Windows PC) and run `npm run agent` on the others. The phone connects to that one
+   hub and sees every machine in a single list.
+2. **Hub peers**: a hub can ALSO connect to another hub as an agent. In `config.json`
+   add `"peers": [{ "hubUrl": "ws://other-hub:8742/agent", "token": "<same token>" }]`
+   — this machine then appears on the other hub. Set peers symmetrically and both hubs
+   show all machines; the phone's server switcher hops between hubs without re-typing.
+
+The phone UI stores a list of servers (URL + token) — tap the server name in the header
+to switch, add, or remove servers. With one uniform token, adding a server is just its URL.
+
 ## Project layout
 
 ```

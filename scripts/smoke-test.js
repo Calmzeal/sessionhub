@@ -109,6 +109,7 @@ async function killChild(info) {
 
 async function main() {
   let hub = null;
+  let hubB = null;
   let agent = null;
   let wsClient = null;
   let printId = null;
@@ -224,6 +225,50 @@ async function main() {
         return body && Array.isArray(body.machines) &&
           body.machines.some((m) => m.id === 'mac-sim' && m.status === 'connected');
       }, 10000, 200, 'mac-sim to appear connected');
+    });
+
+    // ---- Step 3b (v1.3): hub peer (hub-as-agent) ------------------------------
+    await step('hub peer: hub-b appears on hub A, disconnects on kill', async () => {
+      const hubBCfg = {
+        port: 8800,
+        host: '127.0.0.1',
+        authToken: TOKEN,
+        machineName: 'hub-b',
+        allowedRoots: [WORKSPACE],
+        dataDir: path.join(TMP, 'hub-b-data'),
+        peers: [{ hubUrl: `ws://127.0.0.1:${PORT}/agent`, token: TOKEN }]
+      };
+      fs.writeFileSync(path.join(TMP, 'hub-b.json'), JSON.stringify(hubBCfg, null, 2));
+      hubB = spawnChild(
+        [path.join(ROOT, 'server', 'index.js')],
+        { SESSIONHUB_CONFIG: path.join(TMP, 'hub-b.json') },
+        'hub-b'
+      );
+      // Hub B must be up on its own port before its peer client can connect.
+      await waitFor(async () => {
+        try {
+          const res = await fetch('http://127.0.0.1:8800/api/health');
+          return res.status === 200;
+        } catch (e) {
+          return false;
+        }
+      }, 10000, 200, 'hub B /api/health');
+      // Its peer client connects OUTBOUND to hub A as machine "hub-b".
+      await waitFor(async () => {
+        const { body } = await api('/api/state');
+        if (!body) return null;
+        const m = (body.machines || []).find((x) => x.id === 'hub-b');
+        return m && m.status === 'connected' &&
+          Array.isArray(m.allowedRoots) && m.allowedRoots.includes(WORKSPACE) ? m : null;
+      }, 10000, 200, 'hub-b connected on hub A');
+      // Kill hub B -> hub A marks hub-b disconnected.
+      await killChild(hubB);
+      await waitFor(async () => {
+        const { body } = await api('/api/state');
+        if (!body) return null;
+        const m = (body.machines || []).find((x) => x.id === 'hub-b');
+        return m && m.status === 'disconnected';
+      }, 15000, 250, 'hub-b disconnected on hub A');
     });
 
     // ---- Step 4: oneshot print on win-local --------------------------------
@@ -528,9 +573,10 @@ async function main() {
       }, 15000, 250, 'mac-sim disconnected + session disconnected');
     });
   } finally {
-    // ---- Step 11: cleanup ------------------------------------------------------
+    // ---- cleanup ------------------------------------------------------
     try { if (wsClient) wsClient.close(); } catch (e) { /* ignore */ }
     await killChild(agent);
+    await killChild(hubB);
     await killChild(hub);
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) { /* ignore */ }
   }

@@ -14,6 +14,12 @@
     "certFile": null,
     "keyFile": null
   },
+  "peers": [
+    {
+      "hubUrl": "ws://other-hub:8742/agent",
+      "token": "SAME_TOKEN_AS_THIS_HUB"
+    }
+  ],
   "templates": {
     "codex-exec": {
       "type": "oneshot",

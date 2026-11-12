@@ -22,13 +22,16 @@
 <body>
   <div id="app">
 
-    <!-- ============ CONNECT ============ -->
+    <!-- ============ CONNECT / ADD SERVER ============ -->
     <section data-view="connect" id="view-connect">
       <div class="connect-card card">
         <img class="logo-big" src="./icons/icon.svg" alt="SessionHub logo">
         <h1>SessionHub</h1>
-        <p class="muted">Manage AI agent sessions across your machines.</p>
+        <p class="muted">Add a hub server to manage AI agent sessions across your machines.</p>
         <form id="connect-form" novalidate>
+          <label for="connect-name">Name <span class="muted small">(optional)</span></label>
+          <input id="connect-name" type="text" placeholder="e.g. home-hub" autocomplete="off"
+                 autocapitalize="off" spellcheck="false">
           <label for="connect-url">Server URL</label>
           <input id="connect-url" type="text" inputmode="url" placeholder="http://192.168.1.50:8742"
                  autocomplete="url" autocapitalize="off" spellcheck="false">
@@ -53,6 +56,9 @@
             <h1>SessionHub</h1>
           </div>
           <div class="head-actions">
+            <button class="chip server-chip" data-action="server-switch" hidden title="Switch server">
+              <span class="server-name"></span><span class="srv-caret">▾</span>
+            </button>
             <span class="chip ws-chip" data-st="off" hidden>
               <span class="dot"></span><span class="ws-label">Offline</span>
             </span>
@@ -145,6 +151,7 @@
         <div class="head-row"><h1>Settings</h1></div>
       </header>
       <form id="settings-form" class="form-card card" novalidate>
+        <h2>Active server</h2>
         <label for="set-url">Server URL</label>
         <input id="set-url" type="text" inputmode="url" placeholder="http://192.168.1.50:8742"
                autocomplete="url" autocapitalize="off" spellcheck="false">
@@ -155,6 +162,11 @@
         </div>
         <button type="submit" class="btn primary wide">Save &amp; reconnect</button>
       </form>
+      <div class="form-card card">
+        <h2>Servers</h2>
+        <p class="muted small">Add, switch, or remove hub servers.</p>
+        <button type="button" class="btn ghost wide" data-action="server-switch">Manage servers…</button>
+      </div>
       <div class="form-card card">
         <h2>Appearance</h2>
         <div class="seg-control" id="theme-control" role="group" aria-label="Theme">
@@ -227,6 +239,17 @@
         </div>
         <div id="picker-list" class="list grow"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ============ SERVER SWITCHER POPUP ============ -->
+  <div id="server-pop" class="overlay" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2 class="grow">Servers</h2>
+        <button class="btn ghost sm" data-action="server-pop-close" aria-label="Close">✕</button>
+      </div>
+      <div id="server-pop-list" class="sheet-body"></div>
     </div>
   </div>
 

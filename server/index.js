@@ -70,6 +70,43 @@ function main() {
     }
   }
 
+  // Hub peers (v1.3): hub-as-agent outbound clients — this hub's local machine
+  // appears as a remote machine on each peer hub. Peer failures are logged and
+  // ignored (a broken lib or a rejected peer must never take the hub down).
+  const peerClients = [];
+  let createAgentClient = null;
+  try {
+    createAgentClient = require('../lib/agentclient').createAgentClient;
+  } catch (err) {
+    if (config.peers.length) {
+      console.warn(`[sessionhub] lib/agentclient unavailable — peers disabled: ${err && err.message}`);
+    }
+  }
+  if (createAgentClient) {
+    for (const peer of config.peers) {
+      try {
+        const client = createAgentClient({
+          hubUrl: peer.hubUrl,
+          token: peer.token,
+          name: peer.machineName,
+          allowedRoots: peer.allowedRoots,
+          maxSessions: peer.maxSessions,
+          codexWatch: peer.codexWatch,
+          logPrefix: '[sessionhub-peer] ',
+          onFatal: (err) => {
+            // Fatal peer errors (e.g. close codes 4001/4002) are log-only here —
+            // this is a hub, it keeps serving its own machine regardless.
+            console.warn(`[sessionhub] peer ${peer.machineName} fatal: ${(err && err.message) || err}`);
+          }
+        });
+        peerClients.push(client);
+        console.log(`[sessionhub] peer ${peer.machineName} -> ${peer.hubUrl}`);
+      } catch (err) {
+        console.warn(`[sessionhub] could not start peer ${peer.machineName}: ${(err && err.message) || err}`);
+      }
+    }
+  }
+
   server.on('error', (err) => {
     console.error(`[sessionhub] server error: ${err.message}`);
     if (err.code === 'EADDRINUSE') {
@@ -99,6 +136,13 @@ function main() {
     if (hardExit.unref) hardExit.unref();
 
     Promise.resolve()
+      .then(() => {
+        // Shutdown order: peer clients first (peer hubs see us disconnect
+        // promptly), then the codex watcher, then local children last.
+        for (const client of peerClients) {
+          try { client.stop(); } catch (err) { /* ignore */ }
+        }
+      })
       .then(() => {
         if (codexWatcher) {
           try { codexWatcher.stop(); } catch (err) { /* ignore */ }

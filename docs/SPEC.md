@@ -458,7 +458,8 @@ monitoring. Create a session from this workspace to control an agent from your p
 - Test 1 (hub-local watcher): temp codex dir; copy fixture in as a fresh rollout file; hub temp
   config enables `codexWatch {enabled:true, sessionsDir:<temp>, pollMs:300, idleMs:1500}`;
   poll `/api/state` until a `watched` session appears for `win-local` with workspace =
-  `<fixtures>/workspace`; assert its lines include the user text, the `tool › bash` line and
+  the fixture's embedded cwd (`CODEX_CWD` constant, currently `C:\Users\me\dev\sample-workspace`);
+  assert its lines include the user text, the `tool › bash` line and
   the info line; append one more user-message line to the file → assert it streams; wait >
   idleMs → assert status becomes `idle`; delete the file → assert status `ended`.
 - Test 2 (agent watcher): second temp dir + fixture copy; agent `mac-sim` config gets the same
@@ -478,6 +479,37 @@ monitoring. Create a session from this workspace to control an agent from your p
 - Child output encoding: the runner keeps raw byte buffers per stream and decodes each
   line strict-UTF-8 first, falling back to the Windows console codepage (GBK) — no
   `setEncoding` on child streams.
+
+## Uniform token, hub peers, multi-server phone UI (v1.3)
+
+- **Uniform token**: `authToken` is a plain shared secret — use the SAME value in every
+  hub `config.json` and every agent `agent.config.json`. No code required.
+- **Hub peers** (hub-as-agent): hub config `peers: [ { hubUrl, token, machineName?,
+  allowedRoots?, maxSessions?, codexWatch? } ]` (default `[]`). Each entry starts an
+  OUTBOUND agent client (lib/agentclient.js), so THIS hub's local machine appears as a
+  remote machine on the peer hub. Defaults: `machineName` = this hub's machineName,
+  `allowedRoots` = this hub's allowedRoots, `maxSessions` = this hub's maxSessionsPerMachine,
+  `codexWatch` = this hub's codexWatch. Peer clients log
+  `[sessionhub] peer <name> -> <hubUrl>` and are stopped on shutdown. Peers do not change
+  this hub's own machine record.
+- **lib/agentclient.js** — exports `createAgentClient(opts)` → `{ stop() }`, opts:
+  `{ hubUrl, token, name, allowedRoots, maxSessions, codexWatch, logPrefix }`.
+  ALL of the current agent/agent.js behavior moves here unchanged (WS handshake with
+  hello/helloAck + close codes 4001/4002, session.start/stdin/stop dispatch to lib/runner,
+  fs.list/read/chunk/mkdir, codex watching, reconnect/backoff, ping/pong, graceful stop).
+  `agent/agent.js` becomes a thin wrapper (load config, createAgentClient, SIGINT/SIGTERM
+  → stop). Zero behavior change — the existing smoke tests must stay green.
+- **Web UI multi-server**: localStorage `sessionhub.servers` = array of
+  `{id, name, url, token}` + `sessionhub.serverId` (active). Legacy keys
+  `sessionhub.url` / `sessionhub.token` migrate into one default server on first boot.
+  `api()` / `wsUrl()` / health all use the ACTIVE server. The header shows the active
+  server name; tapping opens a switcher popup (server list, tap to switch, add new).
+  Settings manages the list (add / remove / switch / edit). Switching closes the WS,
+  clears loaded state, and reconnects to the new server.
+- **Smoke test addition**: start a second hub on port 8800 (same token, machineName
+  `hub-b`, `peers:[{hubUrl:'ws://127.0.0.1:8799/agent', token}]`); assert hub A's
+  `/api/state` gains machine `hub-b` (connected, allowedRoots = hub B's); stop hub B →
+  assert hub A marks `hub-b` disconnected.
 
 ## Conventions
 
