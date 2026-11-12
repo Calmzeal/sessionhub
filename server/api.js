@@ -185,6 +185,14 @@ function createApp({ config, machines, sessions, version }) {
     res.json(await machines.fsRead(req.params.id, p, mode, mode === 'text' ? 262144 : undefined));
   }));
 
+  app.post('/api/machines/:id/fs/mkdir', wrap(async (req, res) => {
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    const p = typeof body.path === 'string' ? body.path : '';
+    if (!p) throw httpError(400, 'bad-path', 'missing path');
+    const result = await machines.fsMkdir(req.params.id, p);
+    res.json({ ok: true, path: result.path });
+  }));
+
   async function sendRaw(req, res, p) {
     const machine = machines.get(req.params.id);
     if (!machine) throw httpError(404, 'machine-not-found', 'unknown machine');

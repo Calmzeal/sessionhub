@@ -351,6 +351,40 @@ async function main() {
       if (missing.status !== 404) throw new Error(`missing file expected 404, got ${missing.status}`);
     });
 
+    // ---- Step 7b: fs mkdir (hub-local + remote agent + negatives) ---------------
+    await step('fs mkdir (local + remote + 409/403 negatives)', async () => {
+      const mkJson = (machineId, p) => api(`/api/machines/${machineId}/fs/mkdir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: p })
+      });
+      // hub-local: create + verify listed
+      const mkLocal = path.join(WORKSPACE, 'newdir-local-' + Date.now());
+      let r = await mkJson('win-local', mkLocal);
+      if (r.status !== 200 || !r.body || r.body.ok !== true) throw new Error(`local mkdir failed: ${JSON.stringify(r.body)}`);
+      const listLocal = await api(`/api/machines/win-local/fs?path=${encodeURIComponent(WORKSPACE)}`);
+      const foundLocal = ((listLocal.body && listLocal.body.entries) || []).some((e) => e.type === 'dir' && e.path === mkLocal);
+      if (!foundLocal) throw new Error('created dir not listed locally');
+      // duplicate → 409
+      r = await mkJson('win-local', mkLocal);
+      if (r.status !== 409) throw new Error(`duplicate mkdir expected 409, got ${r.status}`);
+      // outside allowed roots → 403
+      r = await mkJson('win-local', path.join(ROOT, 'outside-' + Date.now()));
+      if (r.status !== 403) throw new Error(`outside-roots mkdir expected 403, got ${r.status}`);
+      // parent missing → 404
+      r = await mkJson('win-local', path.join(WORKSPACE, 'no-such-parent-' + Date.now(), 'child'));
+      if (r.status !== 404) throw new Error(`missing-parent mkdir expected 404, got ${r.status}`);
+      // remote agent: create inside sub + verify listed
+      const mkRemote = path.join(WORKSPACE, 'sub', 'newdir-mac-' + Date.now());
+      r = await mkJson('mac-sim', mkRemote);
+      if (r.status !== 200 || !r.body || r.body.ok !== true) throw new Error(`remote mkdir failed: ${JSON.stringify(r.body)}`);
+      const listRemote = await api(`/api/machines/mac-sim/fs?path=${encodeURIComponent(path.join(WORKSPACE, 'sub'))}`);
+      const foundRemote = ((listRemote.body && listRemote.body.entries) || []).some((e) => e.type === 'dir' && e.path === mkRemote);
+      if (!foundRemote) throw new Error('created dir not listed remotely');
+      // cleanup
+      try { fs.rmdirSync(mkLocal); fs.rmdirSync(mkRemote); } catch (e) { /* ignore */ }
+    });
+
     // ---- Step 8: phone WS ----------------------------------------------------
     await step('phone WS: snapshot + live output/session events', async () => {
       const messages = [];

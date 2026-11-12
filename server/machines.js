@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { WebSocket } = require('ws');
-const { resolveWithin, listDir, readFile, readChunk } = require('../lib/fsutil');
+const { resolveWithin, listDir, readFile, readChunk, mkdirWithin } = require('../lib/fsutil');
 
 const REQUEST_TIMEOUT_MS = 20000;
 
@@ -219,6 +219,18 @@ class Machines extends EventEmitter {
     }
     if (m.status !== 'connected') throw httpError(409, 'machine-offline', 'machine is offline');
     return this._request(m, 'fs.chunk', { path: absPath, offset, length });
+  }
+
+  async fsMkdir(id, absPath) {
+    const m = this.byId.get(id);
+    if (!m) throw httpError(404, 'machine-unknown', 'unknown machine');
+    if (m.local) {
+      const platform = m.os === 'win32' ? 'win32' : 'posix';
+      const resolved = mkdirWithin(m.allowedRoots, absPath, platform);
+      return { path: resolved };
+    }
+    if (m.status !== 'connected') throw httpError(409, 'machine-offline', 'machine is offline');
+    return this._request(m, 'fs.mkdir', { path: absPath });
   }
 
   /** Send an fs.* request to a remote agent; resolves on fs.result, rejects on

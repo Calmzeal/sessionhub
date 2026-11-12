@@ -1077,7 +1077,7 @@ function openPicker() {
     showToast('No connected machines to browse', 'error');
     return;
   }
-  state.picker = { machineId: mid, roots: [], root: null, path: null, entries: null, loading: false, error: null };
+  state.picker = { machineId: mid, roots: [], root: null, path: null, entries: null, loading: false, error: null, mkdirOpen: false };
   $('#picker').hidden = false;
   pushOverlay();
   renderPicker();
@@ -1113,6 +1113,7 @@ async function pickerLoadMachine(mid) {
   p.machineId = mid;
   p.loading = true;
   p.error = null;
+  p.mkdirOpen = false;
   p.roots = []; p.root = null; p.path = null; p.entries = null;
   renderPicker();
   const res = await api('/api/machines/' + encodeURIComponent(mid) + '/roots');
@@ -1131,6 +1132,7 @@ async function pickerLoadDir(mid, path) {
   if (!p || p.machineId !== mid) return;
   p.loading = true;
   p.error = null;
+  p.mkdirOpen = false;
   p.path = path;
   renderPicker();
   const res = await api('/api/machines/' + encodeURIComponent(mid) + '/fs?path=' + encodeURIComponent(path));
@@ -1152,6 +1154,30 @@ function choosePickerFolder() {
   }
 }
 
+/** Create a folder inside the currently browsed picker directory. */
+async function createPickerFolder() {
+  const p = state.picker;
+  if (!p || !p.path) return;
+  const inp = $('#picker-mkdir-name');
+  const name = inp ? inp.value.trim() : '';
+  if (!name) { showToast('Enter a folder name', 'error'); return; }
+  if (/[\\/]/.test(name) || name === '.' || name === '..') {
+    showToast('Invalid folder name', 'error');
+    return;
+  }
+  const full = p.path.replace(/[\\/]+$/, '') + '/' + name;
+  const res = await api('/api/machines/' + encodeURIComponent(p.machineId) + '/fs/mkdir', {
+    method: 'POST', body: { path: full }
+  });
+  if (res.error) {
+    showToast('Create failed: ' + (res.error.message || 'error'), 'error');
+    return;
+  }
+  p.mkdirOpen = false;
+  showToast('Folder created', 'ok');
+  pickerLoadDir(p.machineId, (res && res.path) || full);
+}
+
 function renderPicker() {
   const p = state.picker;
   if (!p) return;
@@ -1170,6 +1196,8 @@ function renderPicker() {
       esc(rootLabel(r)) + '</button>').join('');
   }
   $('#picker-crumbs').innerHTML = p.path ? crumbsHTML(p.path, 'picker') : '';
+  const mkdirRow = $('#picker-mkdir');
+  if (mkdirRow) mkdirRow.hidden = !p.mkdirOpen;
   const list = $('#picker-list');
   if (p.loading) list.innerHTML = '<div class="empty"><span class="spin big"></span></div>';
   else if (p.error) list.innerHTML = '<div class="empty">⚠️ ' + esc(p.error) + '</div>';
@@ -1648,6 +1676,22 @@ document.body.addEventListener('click', (e) => {
       if (type === 'dir' && state.picker) pickerLoadDir(state.picker.machineId, path);
       else showToast('Select a folder', 'error');
       break;
+    case 'picker-newfolder':
+      if (state.picker && state.picker.path) {
+        state.picker.mkdirOpen = !state.picker.mkdirOpen;
+        renderPicker();
+        if (state.picker.mkdirOpen) {
+          const inp = $('#picker-mkdir-name');
+          if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 60); }
+        }
+      } else {
+        showToast('Open a folder first', 'error');
+      }
+      break;
+    case 'picker-mkdir-create': createPickerFolder(); break;
+    case 'picker-mkdir-cancel':
+      if (state.picker) { state.picker.mkdirOpen = false; renderPicker(); }
+      break;
     case 'preview-close': closeOverlay('preview'); break;
     case 'file-download': downloadFile(mid, path, name); break;
     case 'theme': applyTheme(el.dataset.mode); break;
@@ -1696,6 +1740,9 @@ function bindStatic() {
   $('#ns-form').addEventListener('submit', submitNewSession);
   $('#token-toggle').addEventListener('click', () => togglePassword('#connect-token'));
   $('#set-token-toggle').addEventListener('click', () => togglePassword('#set-token'));
+  $('#picker-mkdir-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); createPickerFolder(); }
+  });
 }
 
 /* ============================================================

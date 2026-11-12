@@ -141,13 +141,14 @@ Rules:
 
 ### lib/fsutil.js
 ```js
-const { resolveWithin, listDir, readFile, readChunk, MIME } = require('../lib/fsutil');
+const { resolveWithin, listDir, readFile, readChunk, mkdirWithin, MIME } = require('../lib/fsutil');
 resolveWithin(roots, absPath, platform) // → absolute resolved path (realpath-verified inside a root); throws {status:403,message} outside roots, {status:404,message} missing
 listDir(root, absPath)   // → {path, root, entries:[{name, path, type:'dir'|'file', size, mtimeMs}]}  dirs-first, name-sorted (case-insensitive); throws same as resolveWithin
 readFile(path, { mode:'text'|'meta', maxBytes? }) 
   // text: {size, mtimeMs, mime, isBinary, content?, truncated?}  (content omitted if isBinary; maxBytes default 262144)
   // meta: {size, mtimeMs, mime, isBinary}
 readChunk(path, offset, length) // → {data: base64, eof}  (length cap 1 MiB enforced by caller AND here)
+mkdirWithin(roots, absPath, platform) // → creates a single-level dir, returns resolved path; throws 403/404/409/500
 ```
 - `resolveWithin` must defeat `..` traversal AND symlink escapes (realpath of the nearest
   existing ancestor must be inside realpath of the matched root). Windows: compare paths
@@ -206,6 +207,7 @@ Code is a short slug like `machine-offline`, `template-unknown`, `not-running`.
 | GET /api/machines/:id/fs?path=<abs> | `{path, root, entries:[...]}` (defaults to first root if path empty) |
 | GET /api/machines/:id/fs/file?path=<abs>&mode=text|meta | FileInfo (text: `{size,mtimeMs,mime,isBinary,content?,truncated?}`) |
 | GET /api/machines/:id/fs/file?path=<abs>&mode=raw | binary stream, `Content-Type` mime, `Content-Disposition: attachment; filename="<name>"`; streams chunked for remote machines |
+| POST /api/machines/:id/fs/mkdir | `{path}` (absolute path of the NEW single-level directory) → `{ok:true, path}`. 403 outside roots, 404 parent missing, 409 exists (dir or file), 504 agent timeout, 409 machine-offline. |
 
 Hub-side validation on create: machine exists + connected; workspace absolute, under one of
 `machine.allowedRoots` (light check via fsutil with the TARGET machine's platform; the agent
@@ -251,6 +253,7 @@ Hub → agent:
 { "type": "fs.list", "reqId": 7, "path": "/abs" }
 { "type": "fs.read", "reqId": 7, "path": "/abs", "mode": "text|meta", "maxBytes": 262144 }
 { "type": "fs.chunk", "reqId": 7, "path": "/abs", "offset": 0, "length": 262144 }
+{ "type": "fs.mkdir", "reqId": 7, "path": "/abs/new-dir" }
 { "type": "ping", "t": 0 }
 ```
 Agent behavior:
@@ -264,7 +267,8 @@ Agent behavior:
 - `session.stdin`: runner.sendStdin → `session.stdinResult`.
 - `session.stop`: runner.stop.
 - fs.* : validate path within allowedRoots; answer `fs.result` with payload
-  (list → listDir result; read → readFile result; chunk → readChunk result) or `{ok:false, error}`.
+  (list → listDir result; read → readFile result; chunk → readChunk result;
+  mkdir → mkdirWithin result `{path}`) or `{ok:false, error}`.
 - `ping` → `pong`. ws-protocol pings auto-answered by the ws library; also terminate
   unresponsive sockets (isAlive pattern, 60s) so reconnect kicks in.
 - On SIGINT/SIGTERM: runner.stopAll() then exit 0. (Children die with the agent — documented.)

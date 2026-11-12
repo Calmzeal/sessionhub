@@ -221,6 +221,15 @@ function handleFsChunk(msg) {
   }
 }
 
+function handleFsMkdir(msg) {
+  try {
+    const resolved = fsutil.mkdirWithin(config.allowedRoots, msg && msg.path, process.platform);
+    send({ type: 'fs.result', reqId: msg && msg.reqId, ok: true, payload: { path: resolved }, error: null });
+  } catch (err) {
+    send({ type: 'fs.result', reqId: msg && msg.reqId, ok: false, payload: null, error: errObj(err) });
+  }
+}
+
 function handleMessage(data) {
   let msg;
   try {
@@ -278,6 +287,9 @@ function handleMessage(data) {
       break;
     case 'fs.chunk':
       handleFsChunk(msg);
+      break;
+    case 'fs.mkdir':
+      handleFsMkdir(msg);
       break;
     case 'ping':
       send({ type: 'pong', t: msg.t });

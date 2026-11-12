@@ -207,6 +207,7 @@
       <div class="sheet-head">
         <button class="btn ghost sm" data-action="picker-close" aria-label="Close">✕</button>
         <h2 class="grow">Choose folder</h2>
+        <button class="btn ghost sm" data-action="picker-newfolder" title="New folder" aria-label="New folder">📁+</button>
         <button class="btn primary sm" data-action="picker-choose">Choose</button>
       </div>
       <div class="picker-body">
@@ -215,6 +216,11 @@
         </div>
         <div id="picker-roots" class="seg-row" hidden></div>
         <div id="picker-crumbs" class="crumbs" aria-label="Path"></div>
+        <div id="picker-mkdir" class="mkdir-row" hidden>
+          <input id="picker-mkdir-name" type="text" placeholder="New folder name" autocapitalize="off" spellcheck="false" maxlength="120">
+          <button class="btn primary sm" data-action="picker-mkdir-create">Create</button>
+          <button class="btn ghost sm" data-action="picker-mkdir-cancel">Cancel</button>
+        </div>
         <div id="picker-list" class="list grow"></div>
       </div>
     </div>
